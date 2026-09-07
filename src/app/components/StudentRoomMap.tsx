@@ -49,7 +49,7 @@ export function StudentRoomMap({ tables, entries, activeTableId }: StudentRoomMa
               <p className="mb-1.5 text-[11px] font-bold" style={{ color: style.accent }}>
                 {zone}
               </p>
-              <div className="grid grid-cols-5 gap-1.5">
+              <div className="grid grid-cols-6 gap-1.5">
                 {zoneTables.map((table) => {
                   const isOwn = table.id === activeTableId;
                   const isWaiting = waitingTableIds.has(table.id);

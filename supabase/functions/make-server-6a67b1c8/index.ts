@@ -15,45 +15,25 @@ const PROBLEM_CATEGORIES = new Set([
   "other",
 ]);
 
-const GROSS_2568_ROWS = [
-  [1, 2, 3, 4, 5],
-  [10, 9, 8, 7, 6],
-  [11, 12, 13, 14, 15],
-  [20, 19, 18, 17, 16],
-  [21, 22, 23, 24, 25],
-  [30, 29, 28, 27, 26],
-  [31, 32, 33, 34, 35],
-  [39, 38, 37, 36],
-];
-
 const GROSS_2569_ROWS = [
-  [1, 2, 3, 4, 5],
-  [10, 9, 8, 7, 6],
-  [11, 12, 13, 14, 15],
-  [20, 19, 18, 17, 16],
-  [21, 22, 23, 24, 25],
-  [30, 29, 28, 27, 26],
-  [31, 32, 33, 34, 35],
-  [40, 39, 38, 37, 36],
+  [1, 2, 3, 4, 5, 6],
+  [12, 11, 10, 9, 8, 7],
+  [13, 14, 15, 16, 17, 18],
+  [24, 23, 22, 21, 20, 19],
+  [25, 26, 27, 28, 29, 30],
+  [35, 34, 33, 32, 31],
+  [36, 37, 38, 39, 40],
 ];
 
 type RoomLayoutTable = { label: string; zone: string; sort_order: number };
 type RoomLayout = { id: string; tables: RoomLayoutTable[] };
 
 const ROOM_LAYOUTS: Record<string, RoomLayout> = {
-  "2568": {
-    id: "2568",
-    tables: GROSS_2568_ROWS.flat().map((tableNumber, index) => ({
-      label: String(tableNumber),
-      zone: tableNumber <= 10 ? "Zone A" : tableNumber <= 20 ? "Zone B" : tableNumber <= 30 ? "Zone C" : "Zone D",
-      sort_order: index + 1,
-    })),
-  },
   "2569": {
     id: "2569",
     tables: GROSS_2569_ROWS.flat().map((tableNumber, index) => ({
       label: String(tableNumber),
-      zone: tableNumber <= 10 ? "Zone A" : tableNumber <= 20 ? "Zone B" : tableNumber <= 30 ? "Zone C" : "Zone D",
+      zone: tableNumber <= 12 ? "Zone A" : tableNumber <= 24 ? "Zone B" : tableNumber <= 35 ? "Zone C" : "Zone D",
       sort_order: index + 1,
     })),
   },
@@ -187,16 +167,6 @@ async function getOpenSession() {
     .maybeSingle();
 }
 
-function legacyLayoutMatches(value: unknown, layout: RoomLayout) {
-  if (!Array.isArray(value) || value.length !== layout.tables.length) return false;
-  return value.every((item, index) => {
-    const record = typeof item === "string" ? { label: item, zone: "" } : item as Record<string, unknown>;
-    const label = typeof record.label === "string" ? record.label.trim() : "";
-    const zone = typeof record.zone === "string" ? record.zone.trim() : "";
-    return label === layout.tables[index].label && zone === layout.tables[index].zone;
-  });
-}
-
 function requestWindowIsOpen(session: Record<string, any>) {
   const now = Date.now();
   if (session.requests_open_at && now < new Date(session.requests_open_at).getTime()) return false;
@@ -311,7 +281,7 @@ app.delete(`${ROUTE_PREFIX}/admin/access`, async (c) => {
 app.get(`${ROUTE_PREFIX}/admin/table-pins`, async (c) => {
   const admin = await requireAdmin(c);
   if (admin instanceof Response) return admin;
-  const layoutId = c.req.query("layout_id")?.trim() || "2568";
+  const layoutId = c.req.query("layout_id")?.trim() || "2569";
   const layout = ROOM_LAYOUTS[layoutId];
   if (!layout) return c.json({ error: "Unknown room layout" }, 400);
 
@@ -483,13 +453,7 @@ app.post(`${ROUTE_PREFIX}/admin/sessions`, async (c) => {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const cooldownSeconds = Number(body.cooldown_seconds);
   const requestedLayoutId = typeof body.layout_id === "string" ? body.layout_id.trim() : "";
-  let layout = ROOM_LAYOUTS[requestedLayoutId];
-
-  // Allows the already-published 2568 UI to keep working while the frontend
-  // and Edge Function roll out. Arbitrary/custom table lists are still rejected.
-  if (!layout && legacyLayoutMatches(body.tables, ROOM_LAYOUTS["2568"])) {
-    layout = ROOM_LAYOUTS["2568"];
-  }
+  const layout = ROOM_LAYOUTS[requestedLayoutId];
 
   if (
     title.length < 3 || title.length > 100 ||
@@ -503,7 +467,7 @@ app.post(`${ROUTE_PREFIX}/admin/sessions`, async (c) => {
 
   const { data: session, error: sessionError } = await db()
     .from("lab_sessions")
-    .insert({ title, cooldown_seconds: cooldownSeconds, status: "draft" })
+    .insert({ title, cooldown_seconds: cooldownSeconds, room_layout_id: layout.id, status: "draft" })
     .select("id, title, status, cooldown_seconds")
     .single();
   if (sessionError || !session) return c.json({ error: "Failed to create the session" }, 500);

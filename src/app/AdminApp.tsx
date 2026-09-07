@@ -150,7 +150,7 @@ export default function AdminApp() {
   const [sessions, setSessions] = useState<LabSession[]>([]);
   const [title, setTitle] = useState("");
   const [cooldownMinutes, setCooldownMinutes] = useState(10);
-  const [layoutPreset, setLayoutPreset] = useState<RoomLayoutId>("2568");
+  const [layoutPreset, setLayoutPreset] = useState<RoomLayoutId>("2569");
   const [submitting, setSubmitting] = useState(false);
   const [changingId, setChangingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -299,10 +299,6 @@ export default function AdminApp() {
           title: title.trim(),
           cooldown_seconds: Math.round(cooldownMinutes * 60),
           layout_id: layoutPreset,
-          // Kept during the rollout so the previously deployed Edge Function
-          // can still create this canonical preset. The updated server ignores
-          // this field and resolves the tables from layout_id instead.
-          tables,
         }),
       });
       const result = await response.json().catch(() => ({}));
