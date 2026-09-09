@@ -9,3 +9,5 @@ dist/
 *.log
 tmp/
 *.zip
+local-backups/
+output/
