@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+supabase/.temp/
+dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+tmp/
