@@ -8,18 +8,19 @@ export const ZONE_STYLES: Record<string, { background: string; border: string; a
 };
 
 const GROSS_2569_ROWS = [
-  [1, 2, 3, 4, 5, 6],
-  [12, 11, 10, 9, 8, 7],
-  [13, 14, 15, 16, 17, 18],
-  [24, 23, 22, 21, 20, 19],
-  [25, 26, 27, 28, 29, 30],
-  [35, 34, 33, 32, 31],
-  [36, 37, 38, 39, 40],
+  [1, 2, 3, 4, 5],
+  [10, 9, 8, 7, 6],
+  [11, 12, 13, 14, 15],
+  [20, 19, 18, 17, 16],
+  [21, 22, 23, 24, 25],
+  [30, 29, 28, 27, 26],
+  [31, 32, 33, 34, 35],
+  [40, 39, 38, 37, 36],
 ] as const;
 
 export const GROSS_2569_TABLES = GROSS_2569_ROWS.flat().map((tableNumber) => ({
   label: String(tableNumber),
-  zone: tableNumber <= 12 ? "Zone A" : tableNumber <= 24 ? "Zone B" : tableNumber <= 35 ? "Zone C" : "Zone D",
+  zone: tableNumber <= 10 ? "Zone A" : tableNumber <= 20 ? "Zone B" : tableNumber <= 30 ? "Zone C" : "Zone D",
 }));
 
 export const ROOM_LAYOUT_PRESETS = {

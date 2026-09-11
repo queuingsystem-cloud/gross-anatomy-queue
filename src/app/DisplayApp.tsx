@@ -189,11 +189,11 @@ export default function DisplayApp() {
             <div className="grid flex-1 min-h-0 gap-2" style={{ gridTemplateRows: `repeat(${Math.max(1, tableGroups.length)}, minmax(0, 1fr))` }}>
               {tableGroups.map(([zone, zoneTables], zoneIndex) => {
                 const color = zoneStyle(zone, zoneIndex);
-                const zoneRows = Math.max(1, Math.ceil(zoneTables.length / 6));
+                const zoneRows = Math.max(1, Math.ceil(zoneTables.length / 5));
                 return (
                   <div key={zone} className="min-h-0 rounded-xl border px-3 py-2 flex flex-col" style={{ backgroundColor: color.background, borderColor: color.border }}>
                     <p className="shrink-0 text-sm 2xl:text-base font-bold mb-1" style={{ color: color.accent }}>{zone}</p>
-                    <div className="grid flex-1 min-h-0 grid-cols-6 gap-2" style={{ gridTemplateRows: `repeat(${zoneRows}, minmax(0, 1fr))` }}>
+                    <div className="grid flex-1 min-h-0 grid-cols-5 gap-2" style={{ gridTemplateRows: `repeat(${zoneRows}, minmax(0, 1fr))` }}>
                       {zoneTables.map((table) => {
                         const queueInfo = queueInfoByTableId.get(table.id);
                         const waitingStyle = queueInfo
