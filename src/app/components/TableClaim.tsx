@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { AlertCircle, ArrowLeft, LayoutGrid } from "lucide-react";
+import { AlertCircle, ArrowLeft, LayoutGrid, Tablet } from "lucide-react";
 import { sortTablesNumerically } from "../roomLayout";
 
 interface LabTable {
@@ -100,6 +100,21 @@ export function TableClaim({ context, edgeFunctionBase, tableHeaders, onClaimed 
         <p className="text-sm text-center text-gray-500 mt-1 mb-6">
           {context.session?.title}
         </p>
+        <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <Tablet className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+            <div>
+              <p className="text-sm font-bold text-blue-800">
+                คำแนะนำก่อนเริ่มใช้งาน
+              </p>
+              <p className="mt-1 text-sm leading-6 text-blue-700">
+                เพื่อความสะดวกในการใช้งานระหว่างคาบ
+                แนะนำให้เปิดเว็บไซต์นี้บน iPad
+                ที่ใส่ซองพลาสติกป้องกันการปนเปื้อน
+              </p>
+            </div>
+          </div>
+        </div>
         <label className="text-xs text-gray-500 font-medium">Table</label>
         <select
           value={tableId}
