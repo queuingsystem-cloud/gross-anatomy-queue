@@ -251,9 +251,14 @@ export default function DisplayApp() {
         <a href="/admin" title="Back to Admin" className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-gray-500"><ArrowLeft className="w-4.5 h-4.5" /></a>
         <div className="w-10 h-10 rounded-xl bg-[#67ad66] text-white flex items-center justify-center"><Users className="w-5 h-5" /></div>
         <div><p className="text-[10px] uppercase tracking-[0.2em] text-[#67ad66] font-semibold">Gross Anatomy Help Queue</p><h1 className="text-xl md:text-2xl font-bold leading-tight">{data?.session?.title ?? "Classroom Display"}</h1></div>
-        <div className="ml-auto hidden lg:flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5 pr-3">
-          <img src={studentQueueQr} alt="QR code for the student queue" className="w-20 h-20 2xl:w-24 2xl:h-24 rounded-lg bg-white object-contain" />
-          <div className="leading-tight"><p className="text-[10px] 2xl:text-xs uppercase tracking-wide text-[#67ad66] font-bold">Student queue</p><p className="text-xs 2xl:text-sm font-semibold text-slate-600 mt-1">Scan to request help</p></div>
+        <div className="ml-auto hidden lg:flex items-center gap-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+            <img src={studentQueueQr} alt="QR code for the student queue" className="w-28 h-28 2xl:w-32 2xl:h-32 rounded-lg object-contain" />
+          </div>
+          <div className="max-w-28 leading-tight">
+            <p className="text-xs 2xl:text-sm uppercase tracking-wide text-[#67ad66] font-bold">Student queue</p>
+            <p className="text-sm 2xl:text-base font-semibold text-slate-600 mt-1">Scan to request help</p>
+          </div>
         </div>
         <button
           type="button"
