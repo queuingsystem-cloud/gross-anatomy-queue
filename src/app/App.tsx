@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
+  CircleCheckBig,
   Clock,
   HelpCircle,
   LoaderCircle,
@@ -9,6 +10,7 @@ import {
   Send,
   UserMinus,
   Users,
+  XCircle,
 } from "lucide-react";
 import { supabase } from "../../utils/supabase/client";
 import {
@@ -39,6 +41,7 @@ export default function App() {
   const [isCompleting, setIsCompleting] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
+  const [showRequestSuccess, setShowRequestSuccess] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -181,6 +184,7 @@ export default function App() {
         return;
       }
       setProblem("");
+      setShowRequestSuccess(true);
       await Promise.all([loadContext(), loadQueue()]);
     } catch {
       setSubmitError("Network error. Please try again.");
@@ -431,35 +435,40 @@ export default function App() {
         {/* ── Queue Status + Help Request Form ── */}
         <section className="space-y-5">
           <div className="bg-white rounded-3xl shadow-2xl p-5">
-            <h2 className="font-semibold text-[#1e3a5f] mb-3">Queue status</h2>
+            <h2 className="font-semibold text-[#1e3a5f] mb-3">สถานะคิว</h2>
             {ownRequest ? (
               <>
-                <p className="text-green-700 font-semibold">
-                  You are number {ownZoneRank} in{" "}
-                  {ownRequest.zone ?? "your zone"}.
+                <p className="text-green-700 text-base font-bold">
+                  โต๊ะของคุณอยู่ลำดับที่ {ownZoneRank} ใน{" "}
+                  {ownRequest.zone ?? "โซนนี้"}
                 </p>
-                <p className="text-sm text-gray-500 mt-2">
-                  เมื่ออาจารย์มาถึงโต๊ะ {context.assignment.label} ให้กด
-                  Instructor Arrived ทันที
-                  ระบบจะนำคำขอออกจากหน้าจอและเริ่มนับคูลดาวน์
-                </p>
-                <div className="grid grid-cols-2 gap-2 mt-4">
+                <div className="mt-4 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-center">
+                  <p className="text-base md:text-lg font-black text-red-600">
+                    เมื่ออาจารย์มาถึง กรุณากด “อาจารย์มาถึงแล้ว” ทันที
+                  </p>
+                  <p className="mt-1 text-xs md:text-sm font-semibold text-red-500">
+                    เพื่อป้องกันไม่ให้อาจารย์ท่านอื่นเดินมาที่โต๊ะซ้ำ
+                  </p>
+                </div>
+                <div className="mt-4 space-y-2.5">
                   <button
                     onClick={markInstructorArrived}
                     disabled={isCompleting || isCancelling}
-                    className="bg-[#67ad66] text-white font-semibold py-3 rounded-xl disabled:opacity-50"
+                    className="w-full bg-[#54a853] text-white text-lg font-bold py-4 rounded-xl shadow-md transition-colors hover:bg-[#478f47] disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    {isCompleting ? "Updating…" : "Instructor Arrived"}
+                    <CircleCheckBig className="h-5 w-5" />
+                    {isCompleting ? "กำลังบันทึก…" : "อาจารย์มาถึงแล้ว"}
                   </button>
                   <button
                     onClick={() => setShowCancelConfirm(true)}
                     disabled={isCompleting || isCancelling}
-                    className="bg-red-50 text-red-600 border border-red-100 font-semibold py-3 rounded-xl disabled:opacity-50"
+                    className="w-full bg-white text-red-600 border-2 border-red-200 text-base font-bold py-3 rounded-xl transition-colors hover:bg-red-50 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    Cancel Request
+                    <XCircle className="h-5 w-5" />
+                    ยกเลิกคิว
                   </button>
                 </div>
-                <p className="text-[11px] text-red-400 mt-2">
+                <p className="text-xs text-red-500 font-medium mt-2 text-center">
                   หากยกเลิก
                   คำขอจะถูกนำออกจากคิวและเริ่มนับคูลดาวน์ก่อนขอใหม่ได้อีกครั้ง
                 </p>
@@ -469,7 +478,7 @@ export default function App() {
               </>
             ) : (
               <p className="text-sm text-gray-500">
-                You have not requested help yet.
+                โต๊ะของคุณยังไม่ได้ส่งคำขอความช่วยเหลือ
               </p>
             )}
           </div>
@@ -555,6 +564,43 @@ export default function App() {
           />
         </section>
       </main>
+
+      {/* ── Request Submitted Reminder ── */}
+      {showRequestSuccess && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm p-4 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="request-success-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600">
+              <CircleCheckBig className="h-8 w-8" />
+            </div>
+            <h2
+              id="request-success-title"
+              className="mt-4 text-xl font-black text-[#1e3a5f]"
+            >
+              ส่งคำขอเรียบร้อยแล้ว
+            </h2>
+            <div className="mt-4 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-4">
+              <p className="text-base font-black leading-7 text-red-600">
+                เมื่ออาจารย์มาถึงโต๊ะ กรุณากดปุ่ม “อาจารย์มาถึงแล้ว” ทันที
+              </p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-red-500">
+                เพื่อป้องกันไม่ให้อาจารย์ท่านอื่นเดินมาที่โต๊ะซ้ำ
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRequestSuccess(false)}
+              className="mt-5 w-full rounded-xl bg-[#54a853] py-3.5 text-base font-bold text-white transition-colors hover:bg-[#478f47]"
+            >
+              เข้าใจแล้ว
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Cancel Request Confirmation ── */}
       {showCancelConfirm && ownRequest && (
