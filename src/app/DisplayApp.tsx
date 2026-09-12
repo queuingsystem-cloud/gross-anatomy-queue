@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { AlertCircle, ArrowLeft, Clock, ExternalLink, LoaderCircle, Maximize, Users } from "lucide-react";
+import { AlertCircle, ArrowLeft, Clock, ExternalLink, LoaderCircle, Maximize, Users, Volume2, VolumeX } from "lucide-react";
 import { projectId } from "../../utils/supabase/info";
 import { supabase } from "../../utils/supabase/client";
+import studentQueueQr from "../assets/student-queue-qr.jpg";
 import { groupByZone, zoneStyle } from "./roomLayout";
 
 const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6a67b1c8`;
@@ -18,7 +19,6 @@ interface DisplayRequest {
   table_label: string;
   zone: string | null;
   problem: string;
-  request_count: number;
 }
 
 interface DisplayTable {
@@ -38,6 +38,15 @@ function authHeaders(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
 }
 
+function ordinalSuffix(rank: number) {
+  const lastTwoDigits = rank % 100;
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 13) return "th";
+  if (rank % 10 === 1) return "st";
+  if (rank % 10 === 2) return "nd";
+  if (rank % 10 === 3) return "rd";
+  return "th";
+}
+
 export default function DisplayApp() {
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -47,6 +56,63 @@ export default function DisplayApp() {
   const [error, setError] = useState<string | null>(null);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const displaySessionIdRef = useRef<string | null>(null);
+  const seenRequestIdsRef = useRef<Set<string>>(new Set());
+
+  const playNotificationChime = useCallback(async () => {
+    const audioContext = audioContextRef.current;
+    if (!audioContext) return;
+    if (audioContext.state === "suspended") {
+      try {
+        await audioContext.resume();
+      } catch {
+        return;
+      }
+    }
+    if (audioContext.state !== "running") return;
+
+    const startAt = audioContext.currentTime;
+    const notes = [
+      { frequency: 784, offset: 0, duration: 0.2 },
+      { frequency: 1046.5, offset: 0.22, duration: 0.32 },
+    ];
+
+    for (const note of notes) {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const noteStart = startAt + note.offset;
+      const noteEnd = noteStart + note.duration;
+
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(note.frequency, noteStart);
+      gain.gain.setValueAtTime(0.0001, noteStart);
+      gain.gain.exponentialRampToValueAtTime(0.14, noteStart + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(noteStart);
+      oscillator.stop(noteEnd + 0.02);
+    }
+  }, []);
+
+  const toggleSound = async () => {
+    if (soundEnabled) {
+      setSoundEnabled(false);
+      return;
+    }
+
+    try {
+      const audioContext = audioContextRef.current ?? new AudioContext();
+      audioContextRef.current = audioContext;
+      await audioContext.resume();
+      setSoundEnabled(true);
+      void playNotificationChime();
+    } catch {
+      setError("Could not enable notification sound on this display.");
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -131,19 +197,38 @@ export default function DisplayApp() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => () => {
+    void audioContextRef.current?.close();
+  }, []);
+
   const clock = useMemo(() => new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(now), [now]);
   const queue = data?.queue ?? [];
   const tables = data?.tables ?? [];
   const tableGroups = useMemo(() => groupByZone(tables), [tables]);
   const queueInfoByTableId = useMemo(() => {
-    const info = new Map<string, { rank: number; requestCount: number }>();
+    const info = new Map<string, { rank: number }>();
     for (const [zone] of tableGroups) {
       queue
         .filter((request) => (request.zone?.trim() || "Other tables") === zone)
-        .forEach((request, index) => info.set(request.table_id, { rank: index + 1, requestCount: request.request_count }));
+        .forEach((request, index) => info.set(request.table_id, { rank: index + 1 }));
     }
     return info;
   }, [queue, tableGroups]);
+
+  useEffect(() => {
+    const sessionId = data?.session?.id ?? null;
+    const currentRequestIds = new Set(queue.map((request) => request.id));
+
+    if (displaySessionIdRef.current !== sessionId) {
+      displaySessionIdRef.current = sessionId;
+      seenRequestIdsRef.current = currentRequestIds;
+      return;
+    }
+
+    const hasNewRequest = queue.some((request) => !seenRequestIdsRef.current.has(request.id));
+    seenRequestIdsRef.current = currentRequestIds;
+    if (hasNewRequest && soundEnabled) void playNotificationChime();
+  }, [data?.session?.id, queue, playNotificationChime, soundEnabled]);
 
   const enterFullscreen = async () => {
     if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
@@ -166,7 +251,21 @@ export default function DisplayApp() {
         <a href="/admin" title="Back to Admin" className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-gray-500"><ArrowLeft className="w-4.5 h-4.5" /></a>
         <div className="w-10 h-10 rounded-xl bg-[#67ad66] text-white flex items-center justify-center"><Users className="w-5 h-5" /></div>
         <div><p className="text-[10px] uppercase tracking-[0.2em] text-[#67ad66] font-semibold">Gross Anatomy Help Queue</p><h1 className="text-xl md:text-2xl font-bold leading-tight">{data?.session?.title ?? "Classroom Display"}</h1></div>
-        <div className="ml-auto text-right"><p className="text-2xl md:text-3xl font-mono font-bold tabular-nums leading-none">{clock}</p><p className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 ${realtimeConnected ? "text-green-600" : "text-amber-600"}`}><span className={`relative flex w-2 h-2 rounded-full ${realtimeConnected ? "bg-green-500" : "bg-amber-400"}`}>{realtimeConnected && <span className="absolute inset-0 rounded-full bg-green-400 animate-ping" />}</span>{realtimeConnected ? "LIVE" : "CONNECTING"}</p></div>
+        <div className="ml-auto hidden lg:flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5 pr-3">
+          <img src={studentQueueQr} alt="QR code for the student queue" className="w-20 h-20 2xl:w-24 2xl:h-24 rounded-lg bg-white object-contain" />
+          <div className="leading-tight"><p className="text-[10px] 2xl:text-xs uppercase tracking-wide text-[#67ad66] font-bold">Student queue</p><p className="text-xs 2xl:text-sm font-semibold text-slate-600 mt-1">Scan to request help</p></div>
+        </div>
+        <button
+          type="button"
+          onClick={toggleSound}
+          className={`ml-1 h-10 px-3 rounded-xl border flex items-center gap-2 text-xs font-bold transition-colors ${soundEnabled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
+          title={soundEnabled ? "Turn notification sound off" : "Turn notification sound on"}
+          aria-pressed={soundEnabled}
+        >
+          {soundEnabled ? <Volume2 className="w-4.5 h-4.5" /> : <VolumeX className="w-4.5 h-4.5" />}
+          <span className="hidden xl:inline">{soundEnabled ? "Sound on" : "Enable sound"}</span>
+        </button>
+        <div className="text-right"><p className="text-2xl md:text-3xl font-mono font-bold tabular-nums leading-none">{clock}</p><p className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 ${realtimeConnected ? "text-green-600" : "text-amber-600"}`}><span className={`relative flex w-2 h-2 rounded-full ${realtimeConnected ? "bg-green-500" : "bg-amber-400"}`}>{realtimeConnected && <span className="absolute inset-0 rounded-full bg-green-400 animate-ping" />}</span>{realtimeConnected ? "LIVE" : "CONNECTING"}</p></div>
         <button onClick={enterFullscreen} className="ml-2 w-10 h-10 rounded-xl border border-slate-200 flex items-center justify-center hover:bg-slate-50" title="Full screen"><Maximize className="w-5 h-5" /></button>
       </header>
 
@@ -180,6 +279,7 @@ export default function DisplayApp() {
             <div className="shrink-0 flex items-center justify-between mb-2">
               <h2 className="text-lg md:text-xl font-bold">Room overview</h2>
               <div className="flex items-center gap-3 text-[10px] 2xl:text-xs text-gray-500">
+                <span className="font-medium text-slate-500">Queue order within each zone</span>
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-700" />1st</span>
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500" />2nd</span>
                 <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-300" />3rd</span>
@@ -208,7 +308,12 @@ export default function DisplayApp() {
                         return (
                           <div key={table.id} className={`relative min-h-0 rounded-lg flex items-center justify-center text-4xl 2xl:text-5xl font-black transition-colors ${waitingStyle}`}>
                             <span className="truncate px-1">{table.label}</span>
-                            {queueInfo && <span className="absolute right-2 top-2 min-w-8 h-8 px-1.5 rounded-full border-2 border-white bg-[#1e3a5f] text-white shadow flex items-center justify-center text-sm 2xl:text-base font-black tabular-nums">{queueInfo.requestCount}</span>}
+                            {queueInfo && (
+                              <span className="absolute right-2 top-2 min-w-9 h-9 2xl:min-w-10 2xl:h-10 px-2 rounded-full border-2 border-white bg-[#1e3a5f] text-white shadow flex items-center justify-center font-black tabular-nums">
+                                <span className="text-base 2xl:text-lg leading-none">{queueInfo.rank}</span>
+                                <sup className="ml-0.5 -mt-2 text-[8px] 2xl:text-[9px] leading-none">{ordinalSuffix(queueInfo.rank)}</sup>
+                              </span>
+                            )}
                           </div>
                         );
                       })}
