@@ -252,8 +252,10 @@ export default function DisplayApp() {
         <div className="w-10 h-10 rounded-xl bg-[#67ad66] text-white flex items-center justify-center"><Users className="w-5 h-5" /></div>
         <div><p className="text-[10px] uppercase tracking-[0.2em] text-[#67ad66] font-semibold">Gross Anatomy Help Queue</p><h1 className="text-xl md:text-2xl font-bold leading-tight">{data?.session?.title ?? "Classroom Display"}</h1></div>
         <div className="ml-auto hidden lg:flex items-center gap-3">
-          <div className="rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
-            <img src={studentQueueQr} alt="QR code for the student queue" className="w-28 h-28 2xl:w-32 2xl:h-32 rounded-lg object-contain" />
+          <div className="relative h-20 w-28 shrink-0 2xl:h-24 2xl:w-32">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+              <img src={studentQueueQr} alt="QR code for the student queue" className="w-28 h-28 2xl:w-32 2xl:h-32 rounded-md object-contain" />
+            </div>
           </div>
           <div className="max-w-28 leading-tight">
             <p className="text-xs 2xl:text-sm uppercase tracking-wide text-[#67ad66] font-bold">Student queue</p>
