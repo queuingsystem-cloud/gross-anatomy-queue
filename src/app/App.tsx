@@ -23,7 +23,6 @@ import {
 } from "./shared";
 import { TableClaim } from "./components/TableClaim";
 import { StudentRoomMap } from "./components/StudentRoomMap";
-import { ZoneQueueTables } from "./components/ZoneQueueTables";
 
 /* ──────────────────────── Main Student App ──────────────────────── */
 
@@ -45,7 +44,6 @@ export default function App() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const clearInvalidToken = useCallback(() => {
     localStorage.removeItem(TABLE_TOKEN_STORAGE_KEY);
@@ -130,7 +128,7 @@ export default function App() {
           if (event.event_type === "session") loadContext(false);
         }
       )
-      .subscribe((status) => setRealtimeConnected(status === "SUBSCRIBED"));
+      .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
@@ -205,6 +203,7 @@ export default function App() {
         .filter((request) => request.zone === ownRequest.zone)
         .findIndex((request) => request.id === ownRequest.id) + 1
     : 0;
+  const ownZoneLabel = ownRequest?.zone?.replace(/^Zone\s*/i, "") ?? "–";
   const cooldownRemaining = context?.usage?.next_allowed_at
     ? Math.max(
         0,
@@ -354,7 +353,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-pink-100 to-pink-200 p-4 md:p-6">
       {/* ── Header ── */}
-      <header className="max-w-7xl mx-auto bg-white rounded-3xl shadow-2xl px-5 py-3 flex items-center mb-5">
+      <header className="max-w-5xl mx-auto bg-white rounded-3xl shadow-2xl px-5 py-3 flex items-center mb-5">
         <a
           href="/"
           title="Back to home"
@@ -375,12 +374,12 @@ export default function App() {
       </header>
 
       {contextError && (
-        <div className="max-w-7xl mx-auto mb-4 bg-red-50 border border-red-200 text-red-600 rounded-xl px-4 py-3 text-sm">
+        <div className="max-w-5xl mx-auto mb-4 bg-red-50 border border-red-200 text-red-600 rounded-xl px-4 py-3 text-sm">
           {contextError}
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <main className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
         {/* ── Session Info + Room Map ── */}
         <section className="bg-white rounded-3xl shadow-2xl p-5">
           <h2 className="font-semibold text-[#1e3a5f] mb-4">Lab session</h2>
@@ -438,10 +437,17 @@ export default function App() {
             <h2 className="font-semibold text-[#1e3a5f] mb-3">สถานะคิว</h2>
             {ownRequest ? (
               <>
-                <p className="text-green-700 text-base font-bold">
-                  โต๊ะของคุณอยู่ลำดับที่ {ownZoneRank} ใน{" "}
-                  {ownRequest.zone ?? "โซนนี้"}
-                </p>
+                <div className="rounded-2xl border-2 border-green-200 bg-green-50 px-4 py-6 text-center">
+                  <p className="text-lg font-bold text-green-800">
+                    คุณอยู่คิวลำดับที่
+                  </p>
+                  <p className="my-1 text-6xl font-black leading-none text-green-700">
+                    {ownZoneRank}
+                  </p>
+                  <p className="text-xl font-black text-green-800">
+                    ของโซน {ownZoneLabel}
+                  </p>
+                </div>
                 <div className="mt-4 rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-center">
                   <p className="text-base md:text-lg font-black text-red-600">
                     เมื่ออาจารย์มาถึง กรุณากด “อาจารย์มาถึงแล้ว” ทันที
@@ -554,15 +560,6 @@ export default function App() {
             )}
         </section>
 
-        {/* ── Zone Queue Overview ── */}
-        <section className="min-h-[560px]">
-          <ZoneQueueTables
-            entries={requests}
-            tables={context.tables}
-            activeTableId={context.assignment.id}
-            isLive={realtimeConnected}
-          />
-        </section>
       </main>
 
       {/* ── Request Submitted Reminder ── */}
