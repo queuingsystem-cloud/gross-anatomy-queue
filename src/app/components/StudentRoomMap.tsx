@@ -21,8 +21,23 @@ interface StudentRoomMapProps {
 
 export function StudentRoomMap({ tables, entries, activeTableId }: StudentRoomMapProps) {
   const waitingTableIds = new Set(entries.map((entry) => entry.table_id));
+  const activeZone = tables.find((table) => table.id === activeTableId)?.zone;
+  const visibleTables = activeZone
+    ? tables.filter((table) => table.zone === activeZone)
+    : tables;
+
   return (
     <div className="mt-6">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-[#1e3a5f]">
+          ตำแหน่งโต๊ะของคุณ
+        </h3>
+        {activeZone && (
+          <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-bold text-green-700">
+            {activeZone}
+          </span>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-3 text-[10px] text-gray-500">
         <span className="flex items-center gap-1">
           <span className="h-2.5 w-2.5 rounded bg-[#67ad66]" />
@@ -38,7 +53,7 @@ export function StudentRoomMap({ tables, entries, activeTableId }: StudentRoomMa
         </span>
       </div>
       <div className="mt-3 space-y-2">
-        {groupByZone(tables).map(([zone, zoneTables], index) => {
+        {groupByZone(visibleTables).map(([zone, zoneTables], index) => {
           const style = zoneStyle(zone, index);
           return (
             <div
