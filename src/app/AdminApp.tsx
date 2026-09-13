@@ -796,7 +796,7 @@ export default function AdminApp() {
                           disabled={Boolean(changingId)}
                           className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display !== "number" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
                         >
-                          Queue position · 1st
+                          Queue position
                         </button>
                         <button
                           type="button"
@@ -804,7 +804,7 @@ export default function AdminApp() {
                           disabled={Boolean(changingId)}
                           className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display === "number" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
                         >
-                          Request count · 3
+                          Request count
                         </button>
                       </div>
                       <p className="mt-2 text-[11px] leading-4 text-slate-400">Changes the number inside each dark badge. Queue colors still show the first three positions in every zone.</p>
