@@ -11,7 +11,7 @@ const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-s
 interface DisplaySession {
   id: string;
   title: string;
-  queue_priority_display: "gradient" | "number";
+  queue_priority_display: "gradient" | "number" | "off";
 }
 
 interface DisplayRequest {
@@ -220,6 +220,7 @@ export default function DisplayApp() {
     return info;
   }, [queue, tableGroups]);
   const showRequestCount = data?.session?.queue_priority_display === "number";
+  const showTableBadge = data?.session?.queue_priority_display !== "off";
 
   useEffect(() => {
     const sessionId = data?.session?.id ?? null;
@@ -321,7 +322,7 @@ export default function DisplayApp() {
                         return (
                           <div key={table.id} className={`relative min-h-0 rounded-lg flex items-center justify-center text-4xl 2xl:text-5xl font-black transition-colors ${waitingStyle}`}>
                             <span className="truncate px-1">{table.label}</span>
-                            {queueInfo && (
+                            {queueInfo && showTableBadge && (
                               <span className="absolute right-2 top-2 min-w-9 h-9 2xl:min-w-10 2xl:h-10 px-2 rounded-full border-2 border-white bg-[#1e3a5f] text-white shadow flex items-center justify-center font-black tabular-nums">
                                 <span className="text-base 2xl:text-lg leading-none">
                                   {showRequestCount ? queueInfo.requestCount : queueInfo.rank}

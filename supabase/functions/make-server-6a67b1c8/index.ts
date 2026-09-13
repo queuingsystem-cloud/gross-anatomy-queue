@@ -760,8 +760,8 @@ app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/display-mode`, async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
   const mode = body.mode;
-  if (mode !== "gradient" && mode !== "number") {
-    return c.json({ error: "Display mode must be gradient or number" }, 400);
+  if (mode !== "gradient" && mode !== "number" && mode !== "off") {
+    return c.json({ error: "Display mode must be gradient, number, or off" }, 400);
   }
 
   const { data, error } = await db()

@@ -50,7 +50,7 @@ interface LabSession {
   title: string;
   status: "draft" | "open" | "closed";
   cooldown_seconds: number;
-  queue_priority_display: "gradient" | "number";
+  queue_priority_display: "gradient" | "number" | "off";
   requests_open_at: string | null;
   requests_close_at: string | null;
   created_at: string;
@@ -499,7 +499,7 @@ export default function AdminApp() {
 
   const changeDisplayMarker = async (
     session: LabSession,
-    mode: "gradient" | "number",
+    mode: "gradient" | "number" | "off",
   ) => {
     if (session.queue_priority_display === mode) return;
     await runAdminAction(
@@ -789,12 +789,12 @@ export default function AdminApp() {
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3"><label className="text-xs font-semibold text-slate-600">Cooldown</label><div className="flex items-center border border-slate-200 bg-white rounded-lg overflow-hidden"><input type="number" min={0} max={360} value={cooldownEdits[session.id] ?? Math.round(session.cooldown_seconds / 60)} onChange={(event) => setCooldownEdits((current) => ({ ...current, [session.id]: Number(event.target.value) }))} className="w-16 px-2 py-2 text-sm outline-none" /><span className="text-xs text-gray-400 pr-2">min</span></div><button onClick={() => saveSessionCooldown(session)} disabled={Boolean(changingId) || (cooldownEdits[session.id] ?? Math.round(session.cooldown_seconds / 60)) === Math.round(session.cooldown_seconds / 60)} className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-30">Save cooldown</button></div>
                     <div className="mt-3 border-t border-slate-200 pt-3">
                       <p className="text-xs font-semibold text-slate-600">Table badge on Classroom Display</p>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div className="mt-2 grid grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => changeDisplayMarker(session, "gradient")}
                           disabled={Boolean(changingId)}
-                          className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display !== "number" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display === "gradient" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
                         >
                           Queue position
                         </button>
@@ -806,8 +806,16 @@ export default function AdminApp() {
                         >
                           Request count
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => changeDisplayMarker(session, "off")}
+                          disabled={Boolean(changingId)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display === "off" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
+                        >
+                          Off
+                        </button>
                       </div>
-                      <p className="mt-2 text-[11px] leading-4 text-slate-400">Changes the number inside each dark badge. Queue colors still show the first three positions in every zone.</p>
+                      <p className="mt-2 text-[11px] leading-4 text-slate-400">Choose what appears inside the dark badge, or hide it completely. Queue colors still show the first three positions in every zone.</p>
                     </div>
                   </div>
 
