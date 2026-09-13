@@ -11,6 +11,7 @@ const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-s
 interface DisplaySession {
   id: string;
   title: string;
+  queue_priority_display: "gradient" | "number";
 }
 
 interface DisplayRequest {
@@ -19,6 +20,7 @@ interface DisplayRequest {
   table_label: string;
   zone: string | null;
   problem: string;
+  request_count: number;
 }
 
 interface DisplayTable {
@@ -206,14 +208,18 @@ export default function DisplayApp() {
   const tables = data?.tables ?? [];
   const tableGroups = useMemo(() => groupByZone(tables), [tables]);
   const queueInfoByTableId = useMemo(() => {
-    const info = new Map<string, { rank: number }>();
+    const info = new Map<string, { rank: number; requestCount: number }>();
     for (const [zone] of tableGroups) {
       queue
         .filter((request) => (request.zone?.trim() || "Other tables") === zone)
-        .forEach((request, index) => info.set(request.table_id, { rank: index + 1 }));
+        .forEach((request, index) => info.set(request.table_id, {
+          rank: index + 1,
+          requestCount: request.request_count,
+        }));
     }
     return info;
   }, [queue, tableGroups]);
+  const showRequestCount = data?.session?.queue_priority_display === "number";
 
   useEffect(() => {
     const sessionId = data?.session?.id ?? null;
@@ -317,8 +323,12 @@ export default function DisplayApp() {
                             <span className="truncate px-1">{table.label}</span>
                             {queueInfo && (
                               <span className="absolute right-2 top-2 min-w-9 h-9 2xl:min-w-10 2xl:h-10 px-2 rounded-full border-2 border-white bg-[#1e3a5f] text-white shadow flex items-center justify-center font-black tabular-nums">
-                                <span className="text-base 2xl:text-lg leading-none">{queueInfo.rank}</span>
-                                <sup className="ml-0.5 -mt-2 text-[8px] 2xl:text-[9px] leading-none">{ordinalSuffix(queueInfo.rank)}</sup>
+                                <span className="text-base 2xl:text-lg leading-none">
+                                  {showRequestCount ? queueInfo.requestCount : queueInfo.rank}
+                                </span>
+                                {!showRequestCount && (
+                                  <sup className="ml-0.5 -mt-2 text-[8px] 2xl:text-[9px] leading-none">{ordinalSuffix(queueInfo.rank)}</sup>
+                                )}
                               </span>
                             )}
                           </div>

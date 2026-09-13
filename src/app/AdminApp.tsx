@@ -50,6 +50,7 @@ interface LabSession {
   title: string;
   status: "draft" | "open" | "closed";
   cooldown_seconds: number;
+  queue_priority_display: "gradient" | "number";
   requests_open_at: string | null;
   requests_close_at: string | null;
   created_at: string;
@@ -496,6 +497,19 @@ export default function AdminApp() {
     });
   };
 
+  const changeDisplayMarker = async (
+    session: LabSession,
+    mode: "gradient" | "number",
+  ) => {
+    if (session.queue_priority_display === mode) return;
+    await runAdminAction(
+      `display-marker-${session.id}`,
+      `/admin/sessions/${session.id}/display-mode`,
+      "PATCH",
+      { mode },
+    );
+  };
+
   const grantAdminAccess = async () => {
     if (!authSession || changingId || !accessEmail.trim()) return;
     const result = await runAdminAction("grant-access", "/admin/access", "POST", {
@@ -773,6 +787,28 @@ export default function AdminApp() {
                     <div className="flex items-center gap-2"><Timer className="w-4 h-4 text-[#67ad66]" /><p className="text-sm font-semibold">Help requests</p><span className={`ml-auto text-xs font-bold rounded-full px-2 py-1 ${requests === "open" ? "bg-green-100 text-green-700" : requests === "scheduled" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>{requests === "open" ? "OPEN" : requests === "scheduled" ? `OPENS IN ${countdown(session.requests_open_at!, now)}` : "PAUSED"}</span></div>
                     <div className="mt-3 flex flex-wrap gap-2"><div className="flex items-center border border-slate-200 bg-white rounded-lg overflow-hidden"><input type="number" min={1} max={360} value={scheduleMinutes} onChange={(event) => setScheduleMinutes(Number(event.target.value))} className="w-16 px-2 py-2 text-sm outline-none" /><span className="text-xs text-gray-400 pr-2">min</span></div><button onClick={() => changeRequestState(session.id, "schedule")} disabled={Boolean(changingId)} className="text-xs bg-blue-50 text-blue-700 px-3 py-2 rounded-lg disabled:opacity-50"><Timer className="w-3.5 h-3.5 inline mr-1" />Start countdown</button><button onClick={() => changeRequestState(session.id, requests === "open" ? "pause" : "open")} disabled={Boolean(changingId)} className={`text-xs px-3 py-2 rounded-lg disabled:opacity-50 ${requests === "open" ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}`}>{requests === "open" ? <Pause className="w-3.5 h-3.5 inline mr-1" /> : <Play className="w-3.5 h-3.5 inline mr-1" />}{requests === "open" ? "Pause requests" : "Open now"}</button></div>
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3"><label className="text-xs font-semibold text-slate-600">Cooldown</label><div className="flex items-center border border-slate-200 bg-white rounded-lg overflow-hidden"><input type="number" min={0} max={360} value={cooldownEdits[session.id] ?? Math.round(session.cooldown_seconds / 60)} onChange={(event) => setCooldownEdits((current) => ({ ...current, [session.id]: Number(event.target.value) }))} className="w-16 px-2 py-2 text-sm outline-none" /><span className="text-xs text-gray-400 pr-2">min</span></div><button onClick={() => saveSessionCooldown(session)} disabled={Boolean(changingId) || (cooldownEdits[session.id] ?? Math.round(session.cooldown_seconds / 60)) === Math.round(session.cooldown_seconds / 60)} className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-30">Save cooldown</button></div>
+                    <div className="mt-3 border-t border-slate-200 pt-3">
+                      <p className="text-xs font-semibold text-slate-600">Table badge on Classroom Display</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => changeDisplayMarker(session, "gradient")}
+                          disabled={Boolean(changingId)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display !== "number" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
+                        >
+                          Queue position · 1st
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => changeDisplayMarker(session, "number")}
+                          disabled={Boolean(changingId)}
+                          className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${session.queue_priority_display === "number" ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}
+                        >
+                          Request count · 3
+                        </button>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-4 text-slate-400">Changes the number inside each dark badge. Queue colors still show the first three positions in every zone.</p>
+                    </div>
                   </div>
 
                   <details className="mt-3 rounded-xl border border-slate-200 bg-white">
