@@ -3,7 +3,7 @@ import { projectId } from "../../utils/supabase/info";
 /* ──────────────────────── Constants ──────────────────────── */
 
 export const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6a67b1c8`;
-export const TABLE_TOKEN_STORAGE_KEY = "gross-anatomy-table-token";
+export const STUDENT_ACCESS_VERSION_KEY = "gross-anatomy-student-access-version";
 
 /* ──────────────────────── Shared types ──────────────────────── */
 
@@ -12,6 +12,8 @@ export interface LabSession {
   title: string;
   requests_status: "open" | "closed";
   cooldown_seconds: number;
+  require_student_pin: boolean;
+  student_access_version: number;
 }
 
 export interface LabTable {
@@ -44,10 +46,10 @@ export interface HelpRequest {
 
 /* ──────────────────────── Shared utilities ──────────────────────── */
 
-export function tableHeaders(tableToken: string | null, includeJson = true) {
+export function tableHeaders(accessToken: string | null, includeJson = true) {
   const headers: Record<string, string> = {};
   if (includeJson) headers["Content-Type"] = "application/json";
-  if (tableToken) headers["X-Table-Token"] = tableToken;
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   return headers;
 }
 

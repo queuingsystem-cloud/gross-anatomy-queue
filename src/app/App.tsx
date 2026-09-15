@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import {
   AlertCircle,
   ArrowLeft,
@@ -7,15 +8,16 @@ import {
   HelpCircle,
   LoaderCircle,
   LockKeyhole,
+  LogIn,
+  LogOut,
   Send,
-  UserMinus,
   Users,
   XCircle,
 } from "lucide-react";
-import { supabase } from "../../utils/supabase/client";
+import { studentSupabase } from "../../utils/supabase/client";
 import {
   EDGE_FUNCTION_BASE,
-  TABLE_TOKEN_STORAGE_KEY,
+  STUDENT_ACCESS_VERSION_KEY,
   tableHeaders,
   formatCountdown,
   type SessionContext,
@@ -27,9 +29,8 @@ import { StudentRoomMap } from "./components/StudentRoomMap";
 /* ──────────────────────── Main Student App ──────────────────────── */
 
 export default function App() {
-  const [tableToken, setTableToken] = useState<string | null>(() =>
-    localStorage.getItem(TABLE_TOKEN_STORAGE_KEY)
-  );
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [context, setContext] = useState<SessionContext | null>(null);
   const [contextLoading, setContextLoading] = useState(true);
   const [contextError, setContextError] = useState<string | null>(null);
@@ -45,38 +46,55 @@ export default function App() {
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  const clearInvalidToken = useCallback(() => {
-    localStorage.removeItem(TABLE_TOKEN_STORAGE_KEY);
-    setTableToken(null);
-  }, []);
-
   const loadContext = useCallback(
-    async (showLoading = false, tokenOverride?: string | null) => {
-      const token = tokenOverride === undefined ? tableToken : tokenOverride;
+    async (showLoading = false, sessionOverride?: Session | null) => {
+      const session = sessionOverride === undefined ? authSession : sessionOverride;
+      if (!session) {
+        setContext(null);
+        if (showLoading) setContextLoading(false);
+        return;
+      }
       if (showLoading) setContextLoading(true);
       setContextError(null);
       try {
         const response = await fetch(`${EDGE_FUNCTION_BASE}/session/current`, {
-          headers: tableHeaders(token, false),
+          headers: tableHeaders(session.access_token, false),
         });
+        if (response.status === 401 || response.status === 403) {
+          setContextError(response.status === 403 ? "Please use a @student.chula.ac.th Google account." : "Your sign-in session has expired.");
+          await studentSupabase.auth.signOut();
+          return;
+        }
         if (!response.ok) throw new Error();
         const result = (await response.json()) as SessionContext;
+        if (result.session) {
+          const versionKey = `${STUDENT_ACCESS_VERSION_KEY}:${result.session.id}`;
+          const storedVersion = localStorage.getItem(versionKey);
+          const currentVersion = String(result.session.student_access_version);
+          if (storedVersion && storedVersion !== currentVersion) {
+            localStorage.setItem(versionKey, currentVersion);
+            await studentSupabase.auth.signOut();
+            setContext(null);
+            setRequests([]);
+            return;
+          }
+          localStorage.setItem(versionKey, currentVersion);
+        }
         setContext(result);
-        if (result.session && token && !result.assignment) clearInvalidToken();
       } catch {
         setContextError("Could not load the current lab session.");
       } finally {
         if (showLoading) setContextLoading(false);
       }
     },
-    [clearInvalidToken, tableToken]
+    [authSession]
   );
 
   const loadQueue = useCallback(async () => {
     if (!context?.session || !context.assignment) return;
     try {
       const response = await fetch(`${EDGE_FUNCTION_BASE}/queue`, {
-        headers: tableHeaders(tableToken, false),
+        headers: tableHeaders(authSession?.access_token ?? null, false),
       });
       if (!response.ok) throw new Error();
       const data = await response.json();
@@ -84,13 +102,36 @@ export default function App() {
     } catch {
       setContextError("Could not load the queue.");
     }
-  }, [context?.assignment, context?.session, tableToken]);
+  }, [authSession?.access_token, context?.assignment, context?.session]);
 
-  // Initial load
   useEffect(() => {
-    loadContext(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let active = true;
+    studentSupabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setAuthSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: listener } = studentSupabase.auth.onAuthStateChange((_event, next) => {
+      if (!active) return;
+      setAuthSession((current) => (
+        current?.access_token === next?.access_token && current?.user.id === next?.user.id ? current : next
+      ));
+      setAuthLoading(false);
+      if (!next) {
+        setContext(null);
+        setRequests([]);
+      }
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
+
+  useEffect(() => {
+    if (authSession) loadContext(true);
+    else setContextLoading(false);
+  }, [authSession, loadContext]);
 
   // Load queue when assignment changes
   useEffect(() => {
@@ -117,8 +158,9 @@ export default function App() {
 
   // Realtime subscription
   useEffect(() => {
-    const channel = supabase
-      .channel("gross-queue-anonymous-events")
+    if (!authSession) return;
+    const channel = studentSupabase
+      .channel("gross-queue-student-events")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "app_events" },
@@ -130,9 +172,9 @@ export default function App() {
       )
       .subscribe();
     return () => {
-      supabase.removeChannel(channel);
+      studentSupabase.removeChannel(channel);
     };
-  }, [loadContext, loadQueue]);
+  }, [authSession, loadContext, loadQueue]);
 
   // Tick for countdown timers
   useEffect(() => {
@@ -142,23 +184,39 @@ export default function App() {
 
   /* ──────────── Handlers ──────────── */
 
-  const handleClaimed = async (token: string) => {
-    localStorage.setItem(TABLE_TOKEN_STORAGE_KEY, token);
-    setTableToken(token);
-    await loadContext(true, token);
+  const handleClaimed = async () => {
+    await loadContext(true);
   };
 
   const handleExpiredAccess = async (response: Response) => {
-    if (response.status !== 401) return false;
-    clearInvalidToken();
+    if (response.status !== 401 && response.status !== 403) return false;
+    if (response.status === 403) setContextError("Please use a @student.chula.ac.th Google account.");
+    await studentSupabase.auth.signOut();
     setRequests([]);
-    await loadContext(false, null);
     return true;
+  };
+
+  const login = async () => {
+    setContextError(null);
+    const { error } = await studentSupabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/student`,
+        queryParams: { hd: "student.chula.ac.th", prompt: "select_account" },
+      },
+    });
+    if (error) setContextError("Could not start Google sign-in.");
+  };
+
+  const logoutEmail = async () => {
+    await studentSupabase.auth.signOut();
+    setContext(null);
+    setRequests([]);
   };
 
   const sendRequest = async () => {
     if (
-      !tableToken ||
+      !authSession ||
       problem.trim().length < 10 ||
       isSubmitting ||
       context?.session?.requests_status !== "open"
@@ -169,7 +227,7 @@ export default function App() {
     try {
       const response = await fetch(`${EDGE_FUNCTION_BASE}/queue`, {
         method: "POST",
-        headers: tableHeaders(tableToken),
+        headers: tableHeaders(authSession.access_token),
         body: JSON.stringify({
           problem: problem.trim(),
           problem_category: "other",
@@ -214,13 +272,13 @@ export default function App() {
     : 0;
 
   const markInstructorArrived = async () => {
-    if (!tableToken || !ownRequest || isCompleting) return;
+    if (!authSession || !ownRequest || isCompleting) return;
     setIsCompleting(true);
     setSubmitError(null);
     try {
       const response = await fetch(
         `${EDGE_FUNCTION_BASE}/queue/${ownRequest.id}/arrive`,
-        { method: "PATCH", headers: tableHeaders(tableToken) }
+        { method: "PATCH", headers: tableHeaders(authSession.access_token) }
       );
       if (!response.ok) {
         if (await handleExpiredAccess(response)) return;
@@ -234,13 +292,13 @@ export default function App() {
   };
 
   const cancelRequest = async () => {
-    if (!tableToken || !ownRequest || isCancelling) return;
+    if (!authSession || !ownRequest || isCancelling) return;
     setIsCancelling(true);
     setSubmitError(null);
     try {
       const response = await fetch(
         `${EDGE_FUNCTION_BASE}/queue/${ownRequest.id}/cancel`,
-        { method: "PATCH", headers: tableHeaders(tableToken) }
+        { method: "PATCH", headers: tableHeaders(authSession.access_token) }
       );
       if (!response.ok) {
         if (await handleExpiredAccess(response)) return;
@@ -256,8 +314,8 @@ export default function App() {
     }
   };
 
-  const releaseRepresentative = async () => {
-    if (!tableToken || ownRequest || isReleasing) return;
+  const logoutTable = async () => {
+    if (!authSession || ownRequest || isReleasing) return;
     setIsReleasing(true);
     setContextError(null);
     try {
@@ -265,19 +323,18 @@ export default function App() {
         `${EDGE_FUNCTION_BASE}/session/current/assignment`,
         {
           method: "DELETE",
-          headers: tableHeaders(tableToken, false),
+          headers: tableHeaders(authSession.access_token, false),
         }
       );
       if (!response.ok) {
         if (await handleExpiredAccess(response)) return;
         const result = await response.json().catch(() => ({}));
         setContextError(
-          result.error ?? "Could not release this table. Please try again."
+          result.error ?? "Could not log out of this table. Please try again."
         );
         return;
       }
       setShowReleaseConfirm(false);
-      clearInvalidToken();
       setRequests([]);
       setProblem("");
       setSubmitError(null);
@@ -295,10 +352,25 @@ export default function App() {
 
   /* ──────────── Render ──────────── */
 
-  if (contextLoading)
+  if (authLoading || (authSession && contextLoading))
     return (
       <div className="min-h-screen bg-pink-50 flex items-center justify-center">
         <LoaderCircle className="w-9 h-9 animate-spin text-[#67ad66]" />
+      </div>
+    );
+
+  if (!authSession)
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-pink-50 via-pink-100 to-pink-200 flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-3xl bg-white p-8 text-center shadow-2xl">
+          <a href="/" className="mb-5 flex w-fit items-center gap-1 text-sm text-gray-400"><ArrowLeft className="h-4 w-4" />Back to home</a>
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100"><Users className="h-7 w-7 text-[#67ad66]" /></div>
+          <h1 className="text-xl font-bold text-[#1e3a5f]">Student sign in</h1>
+          <p className="mt-2 text-sm leading-6 text-gray-500">Sign in with your <strong>@student.chula.ac.th</strong> Google account before choosing a table.</p>
+          {contextError && <p className="mt-3 text-sm text-red-500">{contextError}</p>}
+          <button onClick={login} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#1e3a5f] py-3 font-semibold text-white"><LogIn className="h-5 w-5" />Sign in with Google</button>
+          <p className="mt-4 text-[11px] leading-5 text-gray-400">The system records which email selects each table so instructors can resolve table-access mistakes.</p>
+        </div>
       </div>
     );
 
@@ -345,8 +417,11 @@ export default function App() {
       <TableClaim
         context={context}
         edgeFunctionBase={EDGE_FUNCTION_BASE}
+        accessToken={authSession.access_token}
+        studentEmail={authSession.user.email ?? ""}
         tableHeaders={tableHeaders}
         onClaimed={handleClaimed}
+        onLogoutEmail={logoutEmail}
       />
     );
 
@@ -412,16 +487,16 @@ export default function App() {
             title={
               ownRequest
                 ? "Cancel the waiting request or record the instructor's arrival first."
-                : "Stop representing this table on this device"
+                : "Log out of this table and choose another table"
             }
             className="mt-4 w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            <UserMinus className="h-4 w-4" />
-            Release this table
+            <LogOut className="h-4 w-4" />
+            Log out
           </button>
           {ownRequest && (
             <p className="mt-2 text-[11px] leading-4 text-gray-400">
-              Finish or cancel the waiting request before releasing this table.
+              Finish or cancel the waiting request before logging out of this table.
             </p>
           )}
           <StudentRoomMap
@@ -651,12 +726,12 @@ export default function App() {
               id="student-release-title"
               className="text-lg font-bold text-[#1e3a5f]"
             >
-              Release table {context.assignment.label}?
+              Log out of table {context.assignment.label}?
             </h2>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              This device will stop representing the table, and another student
-              can claim it using the table PIN. Any cooldown already recorded for
-              the table will remain.
+              You will return to table selection while staying signed in to your
+              email. Another student can then choose this table. Any cooldown
+              already recorded for the table will remain.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
@@ -664,14 +739,14 @@ export default function App() {
                 disabled={isReleasing}
                 className="rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
               >
-                Keep this table
+                Stay at this table
               </button>
               <button
-                onClick={releaseRepresentative}
+                onClick={logoutTable}
                 disabled={isReleasing}
                 className="rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {isReleasing ? "Releasing…" : "Release table"}
+                {isReleasing ? "Logging out…" : "Log out"}
               </button>
             </div>
           </div>

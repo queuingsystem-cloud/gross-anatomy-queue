@@ -54,7 +54,7 @@ app.use(
       if (ALLOWED_ORIGINS.includes("*")) return "*";
       return ALLOWED_ORIGINS.includes(requestOrigin) ? requestOrigin : ALLOWED_ORIGINS[0];
     },
-    allowHeaders: ["Content-Type", "Authorization", "X-Table-Token"],
+    allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length"],
     maxAge: 600,
@@ -130,6 +130,15 @@ async function requireAdmin(c: Context): Promise<AuthenticatedUser | Response> {
   return user;
 }
 
+async function requireStudent(c: Context): Promise<AuthenticatedUser | Response> {
+  const user = await requireGoogleUser(c);
+  if (user instanceof Response) return user;
+  if (user.emailDomain !== "student.chula.ac.th") {
+    return c.json({ error: "A student.chula.ac.th account is required" }, 403);
+  }
+  return user;
+}
+
 function numericTableCompare(left: { label: string }, right: { label: string }) {
   const leftNumber = Number(left.label);
   const rightNumber = Number(right.label);
@@ -139,29 +148,23 @@ function numericTableCompare(left: { label: string }, right: { label: string }) 
   return left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: "base" });
 }
 
-async function sha256(value: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function anonymousAssignment(c: Context, sessionId: string) {
-  const rawToken = (c.req.header("X-Table-Token") ?? "").trim();
-  if (!UUID_RE.test(rawToken)) return { assignment: null, error: null };
-
-  const tokenHash = await sha256(rawToken);
+async function authenticatedAssignment(c: Context, sessionId: string, knownUser?: AuthenticatedUser) {
+  const user = knownUser ?? await requireStudent(c);
+  if (user instanceof Response) return { user: null, assignment: null, error: null, response: user };
   const { data, error } = await db()
     .from("student_table_assignments")
-    .select("id, table_id")
+    .select("id, table_id, auth_version, student_email")
     .eq("session_id", sessionId)
-    .eq("claim_token_hash", tokenHash)
+    .eq("user_id", user.userId)
+    .is("released_at", null)
     .maybeSingle();
-  return { assignment: data, error };
+  return { user, assignment: data, error, response: null };
 }
 
 async function getOpenSession() {
   return db()
     .from("lab_sessions")
-    .select("id, title, status, starts_at, ends_at, requests_open_at, requests_close_at, cooldown_seconds, queue_priority_display")
+    .select("id, title, status, starts_at, ends_at, requests_open_at, requests_close_at, cooldown_seconds, queue_priority_display, require_student_pin, student_access_version")
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -366,29 +369,43 @@ app.get(`${ROUTE_PREFIX}/admin/sessions`, async (c) => {
   if (admin instanceof Response) return admin;
 
   const [sessionsResult, tablesResult, requestsResult, assignmentsResult] = await Promise.all([
-    db().from("lab_sessions").select("id, title, status, starts_at, ends_at, requests_open_at, requests_close_at, cooldown_seconds, queue_priority_display, created_at, archived_at").order("created_at", { ascending: false }),
+    db().from("lab_sessions").select("id, title, status, starts_at, ends_at, requests_open_at, requests_close_at, cooldown_seconds, queue_priority_display, require_student_pin, student_access_version, created_at, archived_at").order("created_at", { ascending: false }),
     db().from("lab_tables").select("id, session_id, label, zone, sort_order, cooldown_reset_at").order("sort_order", { ascending: true }),
     db().from("help_requests").select("id, session_id, table_id, status, problem_category, created_at, instructor_arrived_at"),
-    db().from("student_table_assignments").select("session_id, table_id"),
+    db().from("student_table_assignments").select("session_id, table_id, user_id, student_email, claimed_at, released_at, release_reason").order("claimed_at", { ascending: false }),
   ]);
   if (sessionsResult.error || tablesResult.error || requestsResult.error || assignmentsResult.error) {
     return c.json({ error: "Failed to load admin sessions" }, 500);
   }
 
-  return c.json((sessionsResult.data ?? []).map((session) => ({
-    ...session,
-    tables: (tablesResult.data ?? []).filter((table) => table.session_id === session.id).map((table) => {
+  return c.json((sessionsResult.data ?? []).map((session) => {
+    const sessionTables = (tablesResult.data ?? []).filter((table) => table.session_id === session.id);
+    const sessionAssignments = (assignmentsResult.data ?? []).filter((assignment) => assignment.session_id === session.id);
+    return {
+      ...session,
+      student_login_history: sessionAssignments.map((assignment) => ({
+        table_id: assignment.table_id,
+        table_label: sessionTables.find((table) => table.id === assignment.table_id)?.label ?? "Unknown",
+        student_email: assignment.student_email,
+        claimed_at: assignment.claimed_at,
+        released_at: assignment.released_at,
+        release_reason: assignment.release_reason,
+      })),
+      tables: sessionTables.map((table) => {
       const tableRequests = (requestsResult.data ?? []).filter((request) => request.table_id === table.id);
       const waitingRequest = tableRequests.find((request) => request.status === "waiting");
+      const activeAssignment = sessionAssignments.find((assignment) => assignment.table_id === table.id && !assignment.released_at);
       return {
         ...table,
         request_count: tableRequests.length,
         waiting_request_id: waitingRequest?.id ?? null,
         waiting_since: waitingRequest?.created_at ?? null,
-        representative_claimed: (assignmentsResult.data ?? []).some((assignment) => assignment.table_id === table.id),
+        representative_claimed: Boolean(activeAssignment),
+        representative_email: activeAssignment?.student_email ?? null,
       };
-    }).sort(numericTableCompare),
-  })));
+      }).sort(numericTableCompare),
+    };
+  }));
 });
 
 app.get(`${ROUTE_PREFIX}/admin/display`, async (c) => {
@@ -747,6 +764,49 @@ app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/cooldown`, async (c) => {
   return c.json({ ok: true, cooldown_seconds: cooldownSeconds });
 });
 
+app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/student-access`, async (c) => {
+  const admin = await requireAdmin(c);
+  if (admin instanceof Response) return admin;
+  const id = c.req.param("id");
+  if (!UUID_RE.test(id)) return c.json({ error: "Invalid session ID" }, 400);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.require_student_pin !== "boolean") {
+    return c.json({ error: "require_student_pin must be true or false" }, 400);
+  }
+
+  const { data, error } = await db()
+    .from("lab_sessions")
+    .update({ require_student_pin: body.require_student_pin })
+    .eq("id", id)
+    .is("archived_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) return c.json({ error: "Failed to update student access" }, 500);
+  if (!data) return c.json({ error: "Session not found" }, 404);
+  await db().from("app_events").insert({ event_type: "session", session_id: id });
+  return c.json({ ok: true, require_student_pin: body.require_student_pin });
+});
+
+app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/students/force-logout`, async (c) => {
+  const admin = await requireAdmin(c);
+  if (admin instanceof Response) return admin;
+  const id = c.req.param("id");
+  if (!UUID_RE.test(id)) return c.json({ error: "Invalid session ID" }, 400);
+
+  const { data: releasedCount, error } = await db().rpc("force_logout_lab_students", {
+    p_session_id: id,
+  });
+  if (error) return c.json({ error: "Failed to log out student devices" }, 500);
+  await db().from("app_events").insert({ event_type: "session", session_id: id });
+  return c.json({ ok: true, released_count: releasedCount ?? 0 });
+});
+
 app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/display-mode`, async (c) => {
   const admin = await requireAdmin(c);
   if (admin instanceof Response) return admin;
@@ -823,7 +883,12 @@ app.delete(`${ROUTE_PREFIX}/admin/tables/:id/assignment`, async (c) => {
   const { data: table, error: tableError } = await db().from("lab_tables").select("session_id").eq("id", id).maybeSingle();
   if (tableError) return c.json({ error: "Failed to load the table" }, 500);
   if (!table) return c.json({ error: "Table not found" }, 404);
-  const { error } = await db().from("student_table_assignments").delete().eq("table_id", id).eq("session_id", table.session_id);
+  const { error } = await db()
+    .from("student_table_assignments")
+    .update({ released_at: new Date().toISOString(), release_reason: "admin_release" })
+    .eq("table_id", id)
+    .eq("session_id", table.session_id)
+    .is("released_at", null);
   if (error) return c.json({ error: "Failed to release the representative" }, 500);
   await db().from("app_events").insert({ event_type: "session", session_id: table.session_id });
   return c.json({ ok: true });
@@ -865,9 +930,9 @@ app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/cooldowns/reset`, async (c) => {
   return c.json({ ok: true });
 });
 
-// Public session context. A high-entropy browser token restores the claimed
-// table without requiring or exposing a student identity.
 app.get(`${ROUTE_PREFIX}/session/current`, async (c) => {
+  const student = await requireStudent(c);
+  if (student instanceof Response) return student;
   const { data: session, error: sessionError } = await getOpenSession();
   if (sessionError) {
     console.error("GET /session/current session error:", sessionError.code);
@@ -881,7 +946,7 @@ app.get(`${ROUTE_PREFIX}/session/current`, async (c) => {
     .eq("session_id", session.id)
     .order("sort_order", { ascending: true })
     .order("label", { ascending: true });
-  const assignmentResult = await anonymousAssignment(c, session.id);
+  const assignmentResult = await authenticatedAssignment(c, session.id, student);
 
   if (tablesResult.error || assignmentResult.error) {
     console.error("GET /session/current data error:", tablesResult.error?.code ?? assignmentResult.error?.code);
@@ -921,6 +986,8 @@ app.get(`${ROUTE_PREFIX}/session/current`, async (c) => {
     title: session.title,
     cooldown_seconds: session.cooldown_seconds,
     requests_status: requestWindowIsOpen(session) ? "open" : "closed",
+    require_student_pin: session.require_student_pin,
+    student_access_version: session.student_access_version,
   };
   const studentTables = (tablesResult.data ?? []).map(({ cooldown_reset_at: _reset, ...table }) => table);
   const studentAssignment = assignment
@@ -930,6 +997,8 @@ app.get(`${ROUTE_PREFIX}/session/current`, async (c) => {
 });
 
 app.post(`${ROUTE_PREFIX}/session/current/claim-table`, async (c) => {
+  const student = await requireStudent(c);
+  if (student instanceof Response) return student;
   let body: Record<string, unknown>;
   try {
     body = await c.req.json();
@@ -939,20 +1008,21 @@ app.post(`${ROUTE_PREFIX}/session/current/claim-table`, async (c) => {
 
   const tableId = typeof body.table_id === "string" ? body.table_id : "";
   const pin = typeof body.pin === "string" ? body.pin.trim() : "";
-  if (!UUID_RE.test(tableId) || !/^\d{6}$/.test(pin)) {
-    return c.json({ error: "Select a table and enter its 6-digit PIN" }, 400);
-  }
+  if (!UUID_RE.test(tableId)) return c.json({ error: "Select a table" }, 400);
 
   const { data: session, error: sessionError } = await getOpenSession();
   if (sessionError) return c.json({ error: "Failed to load the lab session" }, 500);
   if (!session) return c.json({ error: "No lab session is open" }, 409);
 
-  const rawToken = crypto.randomUUID();
-  const tokenHash = await sha256(rawToken);
-  const { data: result, error } = await db().rpc("claim_lab_table_anonymous", {
+  if (session.require_student_pin && !/^\d{6}$/.test(pin)) {
+    return c.json({ error: "Enter the table's 6-digit PIN" }, 400);
+  }
+
+  const { data: result, error } = await db().rpc("claim_lab_table_authenticated", {
     p_session_id: session.id,
     p_table_id: tableId,
-    p_claim_token_hash: tokenHash,
+    p_user_id: student.userId,
+    p_student_email: student.email,
     p_pin: pin,
   });
   if (error) {
@@ -960,15 +1030,18 @@ app.post(`${ROUTE_PREFIX}/session/current/claim-table`, async (c) => {
     return c.json({ error: "Failed to claim the table" }, 500);
   }
   const statusCode: Record<string, number> = {
+    invalid_student_email: 403,
+    invalid_table: 400,
     invalid_table_or_pin: 400,
-    invalid_claim_token: 400,
+    user_already_assigned: 409,
     table_already_claimed: 409,
     session_not_open: 409,
   };
   if (result !== "ok") {
-    return c.json({ error: result }, (statusCode[result] ?? 400) as 400 | 409);
+    return c.json({ error: result }, (statusCode[result] ?? 400) as 400 | 403 | 409);
   }
-  return c.json({ ok: true, table_token: rawToken });
+  await db().from("app_events").insert({ event_type: "session", session_id: session.id });
+  return c.json({ ok: true });
 });
 
 app.delete(`${ROUTE_PREFIX}/session/current/assignment`, async (c) => {
@@ -976,7 +1049,8 @@ app.delete(`${ROUTE_PREFIX}/session/current/assignment`, async (c) => {
   if (sessionError) return c.json({ error: "Failed to load the lab session" }, 500);
   if (!session) return c.json({ error: "No lab session is open" }, 409);
 
-  const assignmentResult = await anonymousAssignment(c, session.id);
+  const assignmentResult = await authenticatedAssignment(c, session.id);
+  if (assignmentResult.response) return assignmentResult.response;
   if (assignmentResult.error) return c.json({ error: "Failed to verify table access" }, 500);
   if (!assignmentResult.assignment) return c.json({ error: "Table access required" }, 401);
 
@@ -995,9 +1069,10 @@ app.delete(`${ROUTE_PREFIX}/session/current/assignment`, async (c) => {
 
   const { data: released, error: releaseError } = await db()
     .from("student_table_assignments")
-    .delete()
+    .update({ released_at: new Date().toISOString(), release_reason: "student_logout" })
     .eq("id", assignmentResult.assignment.id)
     .eq("session_id", session.id)
+    .is("released_at", null)
     .select("id")
     .maybeSingle();
   if (releaseError) return c.json({ error: "Failed to release the table" }, 500);
@@ -1011,6 +1086,10 @@ app.get(`${ROUTE_PREFIX}/queue`, async (c) => {
   const { data: session, error: sessionError } = await getOpenSession();
   if (sessionError) return c.json({ error: "Failed to load the lab session" }, 500);
   if (!session) return c.json([]);
+  const assignmentResult = await authenticatedAssignment(c, session.id);
+  if (assignmentResult.response) return assignmentResult.response;
+  if (assignmentResult.error) return c.json({ error: "Failed to verify table access" }, 500);
+  if (!assignmentResult.assignment) return c.json({ error: "Choose your table first" }, 401);
   const { data, error } = await db()
     .from("help_requests")
     .select("id, session_id, table_id, group_number, zone, problem, problem_category, status, created_at, instructor_arrived_at, completed_at, table:lab_tables(label, zone)")
@@ -1052,9 +1131,10 @@ app.post(`${ROUTE_PREFIX}/queue`, async (c) => {
     return c.json({ error: "Help requests are closed" }, 403);
   }
 
-  const assignmentResult = await anonymousAssignment(c, session.id);
+  const assignmentResult = await authenticatedAssignment(c, session.id);
+  if (assignmentResult.response) return assignmentResult.response;
   if (assignmentResult.error) return c.json({ error: "Failed to load your table" }, 500);
-  if (!assignmentResult.assignment) return c.json({ error: "Enter your table PIN before requesting help" }, 401);
+  if (!assignmentResult.assignment) return c.json({ error: "Choose your table before requesting help" }, 401);
 
   const { data: table, error: tableError } = await db()
     .from("lab_tables")
@@ -1094,7 +1174,7 @@ app.post(`${ROUTE_PREFIX}/queue`, async (c) => {
     .insert({
       session_id: session.id,
       table_id: table.id,
-      requested_by: null,
+      requested_by: assignmentResult.user?.userId ?? null,
       group_number: groupNumber,
       zone: table.zone,
       problem,
@@ -1113,12 +1193,13 @@ app.post(`${ROUTE_PREFIX}/queue`, async (c) => {
 
 async function tableForStudentAction(c: Context) {
   const { data: session, error: sessionError } = await getOpenSession();
-  if (sessionError || !session) return { session: null, tableId: null, error: sessionError };
-  const assignmentResult = await anonymousAssignment(c, session.id);
+  if (sessionError || !session) return { session: null, tableId: null, error: sessionError, response: null };
+  const assignmentResult = await authenticatedAssignment(c, session.id);
   return {
     session,
     tableId: assignmentResult.assignment?.table_id ?? null,
     error: assignmentResult.error,
+    response: assignmentResult.response,
   };
 }
 
@@ -1126,6 +1207,7 @@ app.patch(`${ROUTE_PREFIX}/queue/:id/cancel`, async (c) => {
   const id = c.req.param("id");
   if (!UUID_RE.test(id)) return c.json({ error: "Invalid request ID" }, 400);
   const access = await tableForStudentAction(c);
+  if (access.response) return access.response;
   if (access.error) return c.json({ error: "Failed to verify table access" }, 500);
   if (!access.tableId) return c.json({ error: "Table access required" }, 401);
   const { data, error } = await db()
@@ -1150,6 +1232,7 @@ async function markInstructorArrived(c: Context) {
   const id = c.req.param("id");
   if (!UUID_RE.test(id)) return c.json({ error: "Invalid request ID" }, 400);
   const access = await tableForStudentAction(c);
+  if (access.response) return access.response;
   if (access.error) return c.json({ error: "Failed to verify table access" }, 500);
   if (!access.tableId) return c.json({ error: "Table access required" }, 401);
   const { data, error } = await db()
