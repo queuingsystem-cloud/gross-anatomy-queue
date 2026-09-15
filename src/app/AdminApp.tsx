@@ -28,7 +28,7 @@ import {
   Users,
 } from "lucide-react";
 import { projectId } from "../../utils/supabase/info";
-import { supabase } from "../../utils/supabase/client";
+import { ADMIN_AUTH_STORAGE_KEY, supabase } from "../../utils/supabase/client";
 import { ROOM_LAYOUT_PRESETS, type RoomLayoutId, sortTablesNumerically } from "./roomLayout";
 
 const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6a67b1c8`;
@@ -223,6 +223,16 @@ export default function AdminApp() {
       const statusResponse = await fetch(`${EDGE_FUNCTION_BASE}/admin/status`, {
         headers: authHeaders(authSession.access_token),
       });
+      if (statusResponse.status === 401) {
+        localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
+        setAuthSession(null);
+        setIsAdmin(null);
+        setAdminEmail("");
+        setSessions([]);
+        setAdminAccess([]);
+        setError("Your administrator session expired. Please sign in again.");
+        return;
+      }
       if (statusResponse.status === 403) {
         setIsAdmin(false);
         return;
@@ -290,7 +300,13 @@ export default function AdminApp() {
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
+    setAuthSession(null);
+    setIsAdmin(null);
+    setAdminEmail("");
+    setSessions([]);
+    setAdminAccess([]);
+    await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
   };
 
   const createSession = async () => {
