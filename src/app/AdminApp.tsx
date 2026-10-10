@@ -30,6 +30,7 @@ import {
 import { projectId } from "../../utils/supabase/info";
 import { ADMIN_AUTH_STORAGE_KEY, supabase } from "../../utils/supabase/client";
 import { ROOM_LAYOUT_PRESETS, type RoomLayoutId, sortTablesNumerically } from "./roomLayout";
+import { CATEGORY_LABELS, durationLabel, exportSessionReportPdf, type SessionReport } from "./sessionReportPdf";
 
 const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6a67b1c8`;
 
@@ -67,25 +68,6 @@ interface LabSession {
     released_at: string | null;
     release_reason: string | null;
   }>;
-}
-
-interface SessionReport {
-  summary: {
-    total_requests: number;
-    arrived: number;
-    waiting: number;
-    student_cancelled: number;
-    admin_cancelled: number;
-    average_wait_seconds: number | null;
-    median_wait_seconds: number | null;
-    longest_wait_seconds: number | null;
-    peak_hour: string | null;
-    peak_hour_requests: number;
-    tables_never_requested: number;
-  };
-  categories: Array<{ category: string; count: number }>;
-  tables: Array<{ id: string; label: string; zone: string | null; total_requests: number; arrived: number; student_cancelled: number; admin_cancelled: number; average_wait_seconds: number | null }>;
-  questions: Array<{ id: string; table_label: string; problem: string; category: string; status: string; created_at: string; instructor_arrived_at: string | null; wait_seconds: number | null }>;
 }
 
 interface GeneratedPin {
@@ -134,23 +116,6 @@ function countdown(value: string, now: number) {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
     : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  identify_structure: "Identify a structure",
-  dissection_technique: "Dissection technique",
-  anatomical_relationship: "Anatomical relationships",
-  clarify_instructions: "Clarify instructions",
-  specimen_issue: "Specimen problem",
-  other: "Other",
-};
-
-function durationLabel(seconds: number | null) {
-  if (seconds === null) return "—";
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
 export default function AdminApp() {
@@ -640,6 +605,13 @@ export default function AdminApp() {
     }
   };
 
+  const exportReportPdf = (session: LabSession, report: SessionReport) => {
+    setError(null);
+    if (!exportSessionReportPdf(session, report)) {
+      setError("Could not open the PDF report. Please allow pop-ups for this website and try again.");
+    }
+  };
+
   const endSession = (session: LabSession) => {
     setConfirmationInput("");
     setConfirmation({
@@ -916,7 +888,7 @@ export default function AdminApp() {
                   </>}
                 </div>
                 {report && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/30 p-3">
-                  <div className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-600" /><p className="text-sm font-bold text-[#1e3a5f]">Session report</p></div>
+                  <div className="flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-600" /><p className="text-sm font-bold text-[#1e3a5f]">Session report</p><button type="button" onClick={() => exportReportPdf(session, report)} className="ml-auto flex items-center gap-1.5 rounded-lg bg-[#1e3a5f] px-3 py-2 text-xs font-semibold text-white"><Download className="h-3.5 w-3.5" />Export PDF</button></div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-center"><div className="rounded-lg bg-white p-2"><p className="text-xl font-bold text-[#1e3a5f]">{report.summary.total_requests}</p><p className="text-[10px] text-gray-400">total requests</p></div><div className="rounded-lg bg-white p-2"><p className="text-xl font-bold text-green-600">{report.summary.arrived}</p><p className="text-[10px] text-gray-400">instructor arrived</p></div><div className="rounded-lg bg-white p-2"><p className="text-lg font-bold text-[#1e3a5f]">{durationLabel(report.summary.median_wait_seconds)}</p><p className="text-[10px] text-gray-400">median wait</p></div><div className="rounded-lg bg-white p-2"><p className="text-lg font-bold text-[#1e3a5f]">{durationLabel(report.summary.longest_wait_seconds)}</p><p className="text-[10px] text-gray-400">longest wait</p></div></div>
                   <div className="mt-3 text-xs text-gray-500 space-y-1"><p>Average wait: <strong>{durationLabel(report.summary.average_wait_seconds)}</strong></p><p>Student cancellations: <strong>{report.summary.student_cancelled}</strong> · Admin cancellations: <strong>{report.summary.admin_cancelled}</strong></p><p>Peak request period: <strong>{report.summary.peak_hour ?? "—"}</strong>{report.summary.peak_hour ? ` (${report.summary.peak_hour_requests})` : ""}</p><p>Tables with no requests: <strong>{report.summary.tables_never_requested}</strong></p></div>
                   <div className="mt-4"><p className="text-xs font-bold text-gray-600">Question categories</p>{report.categories.length ? <div className="mt-2 space-y-1">{report.categories.map((category) => <div key={category.category} className="flex items-center rounded-lg bg-white px-2.5 py-2 text-xs"><span>{CATEGORY_LABELS[category.category] ?? category.category}</span><strong className="ml-auto">{category.count}</strong></div>)}</div> : <p className="mt-1 text-xs text-gray-400">No categorized requests yet.</p>}</div>
