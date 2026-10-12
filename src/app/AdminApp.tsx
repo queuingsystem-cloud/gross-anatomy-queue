@@ -53,7 +53,6 @@ interface LabSession {
   status: "draft" | "open" | "closed";
   cooldown_seconds: number;
   queue_priority_display: "gradient" | "number" | "off";
-  require_student_pin: boolean;
   student_access_version: number;
   requests_open_at: string | null;
   requests_close_at: string | null;
@@ -502,16 +501,6 @@ export default function AdminApp() {
     );
   };
 
-  const changeStudentPinRequirement = async (session: LabSession, requirePin: boolean) => {
-    if (session.require_student_pin === requirePin) return;
-    await runAdminAction(
-      `student-access-${session.id}`,
-      `/admin/sessions/${session.id}/student-access`,
-      "PATCH",
-      { require_student_pin: requirePin },
-    );
-  };
-
   const forceLogoutStudents = (session: LabSession) => {
     setConfirmationInput("");
     setConfirmation({
@@ -846,11 +835,7 @@ export default function AdminApp() {
                     </div>
                     <div className="mt-3 border-t border-slate-200 pt-3">
                       <div className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-[#67ad66]" /><p className="text-xs font-semibold text-slate-600">Student table access</p></div>
-                      <p className="mt-1 text-[11px] leading-4 text-slate-400">Student Google login is always required. Choose whether the table PIN is required too.</p>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        <button type="button" onClick={() => changeStudentPinRequirement(session, true)} disabled={Boolean(changingId)} className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${session.require_student_pin ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}>Email + PIN</button>
-                        <button type="button" onClick={() => changeStudentPinRequirement(session, false)} disabled={Boolean(changingId)} className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50 ${!session.require_student_pin ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}`}>Email only</button>
-                      </div>
+                      <p className="mt-1 text-[11px] leading-4 text-slate-400">Student Google login is required. Each account can select one table at a time; no table PIN is needed.</p>
                       <button type="button" onClick={() => forceLogoutStudents(session)} disabled={Boolean(changingId)} className="mt-2 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 disabled:opacity-50"><LogOut className="mr-1 inline h-3.5 w-3.5" />Force log out all students</button>
                     </div>
                   </div>

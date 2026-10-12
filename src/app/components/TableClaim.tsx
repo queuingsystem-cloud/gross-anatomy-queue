@@ -15,16 +15,14 @@ interface TableClaimProps {
 
 export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmail, tableHeaders, onClaimed, onLogoutEmail }: TableClaimProps) {
   const [tableId, setTableId] = useState("");
-  const [pin, setPin] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pinRequired = context.session?.require_student_pin ?? true;
   const selectableTables = useMemo(() => sortTablesNumerically(context.tables), [context.tables]);
 
   const claim = async () => {
-    if (!tableId || (pinRequired && !/^\d{6}$/.test(pin.trim())) || submitting) {
-      setError(pinRequired ? "Select your table and enter its 6-digit PIN." : "Select your table.");
+    if (!tableId || submitting) {
+      setError("Select your table.");
       return;
     }
     setSubmitting(true);
@@ -33,12 +31,12 @@ export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmai
       const response = await fetch(`${edgeFunctionBase}/session/current/claim-table`, {
         method: "POST",
         headers: tableHeaders(accessToken),
-        body: JSON.stringify({ table_id: tableId, pin: pin.trim() }),
+        body: JSON.stringify({ table_id: tableId }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         const messages: Record<string, string> = {
-          invalid_table_or_pin: "The table or PIN is incorrect.",
+          invalid_table_or_pin: "This table could not be confirmed. Please refresh and try again.",
           table_already_claimed: "Another account is already using this table.",
           user_already_assigned: "This email is already using another table. Log out of that table first.",
           session_not_open: "This lab session is not open.",
@@ -46,7 +44,6 @@ export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmai
         setError(messages[result.error] ?? result.error ?? "Could not confirm this table. Please try again.");
         return;
       }
-      setPin("");
       await onClaimed();
     } catch {
       setError("Network error. Please check your connection and try again.");
@@ -78,7 +75,6 @@ export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmai
           <option value="">Select a table</option>
           {selectableTables.map((table) => <option key={table.id} value={table.id}>{table.label}</option>)}
         </select>
-        {pinRequired && <><label className="text-xs text-gray-500 font-medium">Table PIN</label><input type="password" inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(event) => { if (event.key === "Enter") claim(); }} placeholder="Enter the PIN from your instructor" className="w-full mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-green-300" /><p className="mt-2 text-xs text-gray-400">The table PIN is provided by your instructor.</p></>}
         {error && <p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
         <button onClick={claim} disabled={submitting} className="w-full mt-5 bg-[#c96da0] hover:bg-[#db97bd] disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors">{submitting ? "Checking…" : "Continue"}</button>
         <button onClick={logoutEmail} disabled={loggingOut || submitting} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50"><LogOut className="h-4 w-4" />{loggingOut ? "Signing out…" : "Log out from email"}</button>
