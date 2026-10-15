@@ -33,6 +33,9 @@ import { ROOM_LAYOUT_PRESETS, type RoomLayoutId, sortTablesNumerically } from ".
 import { CATEGORY_LABELS, durationLabel, exportSessionReportPdf, type SessionReport } from "./sessionReportPdf";
 
 const EDGE_FUNCTION_BASE = `https://${projectId}.supabase.co/functions/v1/make-server-6a67b1c8`;
+// Keep the permanent PIN tools in the codebase for a future policy change,
+// but hide them while student table access is email-only.
+const SHOW_PERMANENT_PIN_UI = false;
 
 interface LabTable {
   id: string;
@@ -757,13 +760,13 @@ export default function AdminApp() {
               ))}
             </select>
           </div>
-          <p className="mt-2 text-xs text-gray-400">The table positions, zones, and permanent PIN list are fixed by this room layout.</p>
+          <p className="mt-2 text-xs text-gray-400">The table positions and zones are fixed by this room layout.</p>
           {error && <p className="mt-3 text-sm text-red-500 flex items-start gap-1"><AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />{error}</p>}
           <button onClick={createSession} disabled={submitting} className="w-full mt-5 bg-[#1e3a5f] text-white font-semibold py-3 rounded-xl disabled:opacity-50">{submitting ? "Creating…" : "Create draft"}</button>
         </section>
 
         <div className="space-y-6">
-          <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+          {SHOW_PERMANENT_PIN_UI && <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex items-center gap-2"><KeyRound className="w-5 h-5 text-violet-600" /><div><h2 className="font-bold text-[#1e3a5f]">Permanent table PINs</h2><p className="text-xs text-gray-400 mt-0.5">Each PIN is reused in every lab session until an administrator changes it.</p></div></div>
             <button onClick={togglePermanentPins} disabled={Boolean(changingId)} className="mt-4 w-full rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-sm font-semibold text-violet-700 disabled:opacity-50">{pinsExpanded ? "Hide PIN list" : "View or download PIN list"}</button>
             {pinsExpanded && generatedPins.length > 0 && <div className="mt-4">
@@ -776,7 +779,7 @@ export default function AdminApp() {
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3"><button onClick={copyPins} className="rounded-xl border border-violet-200 bg-white py-2.5 text-violet-700 flex items-center justify-center gap-2">{copied ? <Check className="w-4 h-4" /> : <Clipboard className="w-4 h-4" />}{copied ? "Copied" : "Copy"}</button><button onClick={downloadPins} className="rounded-xl border border-violet-200 bg-white py-2.5 text-violet-700 flex items-center justify-center gap-2"><Download className="w-4 h-4" />Download CSV</button></div>
             </div>}
-          </section>
+          </section>}
 
           <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex items-center gap-2"><Users className="w-5 h-5 text-[#67ad66]" /><div><h2 className="font-bold text-[#1e3a5f]">Admin access</h2><p className="text-xs text-gray-400 mt-0.5">Any Google email can be granted access; no Chula domain is required.</p></div></div>
