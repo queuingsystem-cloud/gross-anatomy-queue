@@ -767,7 +767,30 @@ app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/cooldown`, async (c) => {
 app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/student-access`, async (c) => {
   const admin = await requireAdmin(c);
   if (admin instanceof Response) return admin;
-  return c.json({ error: "Table PIN access has been retired; student access is email only" }, 410);
+  const id = c.req.param("id");
+  if (!UUID_RE.test(id)) return c.json({ error: "Invalid session ID" }, 400);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.require_student_pin !== "boolean") {
+    return c.json({ error: "require_student_pin must be true or false" }, 400);
+  }
+
+  const { data, error } = await db()
+    .from("lab_sessions")
+    .update({ require_student_pin: body.require_student_pin })
+    .eq("id", id)
+    .is("archived_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) return c.json({ error: "Failed to update student access" }, 500);
+  if (!data) return c.json({ error: "Session not found" }, 404);
+  await db().from("app_events").insert({ event_type: "session", session_id: id });
+  return c.json({ ok: true, require_student_pin: body.require_student_pin });
 });
 
 app.patch(`${ROUTE_PREFIX}/admin/sessions/:id/students/force-logout`, async (c) => {
@@ -963,7 +986,7 @@ app.get(`${ROUTE_PREFIX}/session/current`, async (c) => {
     title: session.title,
     cooldown_seconds: session.cooldown_seconds,
     requests_status: requestWindowIsOpen(session) ? "open" : "closed",
-    require_student_pin: false,
+    require_student_pin: session.require_student_pin,
     student_access_version: session.student_access_version,
   };
   const studentTables = (tablesResult.data ?? []).map(({ cooldown_reset_at: _reset, ...table }) => table);
@@ -984,21 +1007,15 @@ app.post(`${ROUTE_PREFIX}/session/current/claim-table`, async (c) => {
   }
 
   const tableId = typeof body.table_id === "string" ? body.table_id : "";
+  const pin = typeof body.pin === "string" ? body.pin.trim() : "";
   if (!UUID_RE.test(tableId)) return c.json({ error: "Select a table" }, 400);
 
   const { data: session, error: sessionError } = await getOpenSession();
   if (sessionError) return c.json({ error: "Failed to load the lab session" }, 500);
   if (!session) return c.json({ error: "No lab session is open" }, 409);
 
-  if (session.require_student_pin) {
-    const { error: disablePinError } = await db()
-      .from("lab_sessions")
-      .update({ require_student_pin: false })
-      .eq("id", session.id);
-    if (disablePinError) {
-      console.error("POST /claim-table disable PIN error:", disablePinError.code);
-      return c.json({ error: "Failed to prepare email-only table access" }, 500);
-    }
+  if (session.require_student_pin && !/^\d{6}$/.test(pin)) {
+    return c.json({ error: "Enter the table's 6-digit PIN" }, 400);
   }
 
   const { data: result, error } = await db().rpc("claim_lab_table_authenticated", {
@@ -1006,7 +1023,7 @@ app.post(`${ROUTE_PREFIX}/session/current/claim-table`, async (c) => {
     p_table_id: tableId,
     p_user_id: student.userId,
     p_student_email: student.email,
-    p_pin: "",
+    p_pin: pin,
   });
   if (error) {
     console.error("POST /claim-table db error:", error.code);

@@ -13,8 +13,13 @@ interface TableClaimProps {
   onLogoutEmail: () => Promise<void>;
 }
 
+// PIN support is intentionally retained for a future policy change, but the
+// current student flow is email-only and does not show the PIN field.
+const SHOW_TABLE_PIN_FIELD = false;
+
 export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmail, tableHeaders, onClaimed, onLogoutEmail }: TableClaimProps) {
   const [tableId, setTableId] = useState("");
+  const [pin, setPin] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,18 +30,24 @@ export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmai
       setError("Select your table.");
       return;
     }
+    if (SHOW_TABLE_PIN_FIELD && context.session?.require_student_pin && !/^\d{6}$/.test(pin)) {
+      setError("Enter the 6-digit PIN provided for your table.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const response = await fetch(`${edgeFunctionBase}/session/current/claim-table`, {
         method: "POST",
         headers: tableHeaders(accessToken),
-        body: JSON.stringify({ table_id: tableId }),
+        body: JSON.stringify({ table_id: tableId, pin: SHOW_TABLE_PIN_FIELD ? pin : "" }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         const messages: Record<string, string> = {
-          invalid_table_or_pin: "This table could not be confirmed. Please refresh and try again.",
+          invalid_table_or_pin: SHOW_TABLE_PIN_FIELD
+            ? "The PIN is incorrect for this table. Please check the table number and try again."
+            : "This table could not be confirmed. Please refresh and try again.",
           table_already_claimed: "Another account is already using this table.",
           user_already_assigned: "This email is already using another table. Log out of that table first.",
           session_not_open: "This lab session is not open.",
@@ -75,6 +86,17 @@ export function TableClaim({ context, edgeFunctionBase, accessToken, studentEmai
           <option value="">Select a table</option>
           {selectableTables.map((table) => <option key={table.id} value={table.id}>{table.label}</option>)}
         </select>
+        {SHOW_TABLE_PIN_FIELD && context.session?.require_student_pin && <>
+          <label className="text-xs text-gray-500 font-medium">Table PIN</label>
+          <input
+            value={pin}
+            onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="6-digit PIN"
+            className="w-full mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-center text-lg tracking-[0.35em] outline-none focus:ring-2 focus:ring-green-300"
+          />
+        </>}
         {error && <p className="text-xs text-red-500 mt-2 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
         <button onClick={claim} disabled={submitting} className="w-full mt-5 bg-[#c96da0] hover:bg-[#db97bd] disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors">{submitting ? "Checking…" : "Continue"}</button>
         <button onClick={logoutEmail} disabled={loggingOut || submitting} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50"><LogOut className="h-4 w-4" />{loggingOut ? "Signing out…" : "Log out from email"}</button>
